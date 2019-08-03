@@ -1,0 +1,145 @@
+---
+title: "Coursera Practical Machine Learning Course Proj"
+author: "John Kerwin Ty"
+date: "August 1, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We first load the libraries needed
+```{r library, echo=TRUE, results=FALSE}
+library(dplyr);library(caret);library(rpart)
+library(rpart.plot);library(rattle);library(randomForest);library(corrplot)
+```
+
+```{r load, echo=TRUE}
+train<-read.csv("pml-training.csv");test<-read.csv("pml-testing.csv")
+```
+
+##Data Pre-processing
+
+We create a data partition with the training dataset and split it 70% train and 30% test.
+```{r partition, echo=TRUE}
+# Set seed for reproducible
+set.seed(12345)
+inTrain  <- createDataPartition(train$classe, p=0.7, list=FALSE)
+TrainSet <- train[inTrain, ];TestSet  <- train[-inTrain, ]
+dim(TrainSet);dim(TestSet)
+```
+
+```{r str, echo=TRUE}
+# We want to see an overview of the contents for each variable
+str(TrainSet)
+```
+
+We have to first clean the data since if you can notice that most of the columns have NA values or no values at all. We want to remove thsoe columns since they don't provide significant information for our model.
+
+```{r drop, echo = TRUE}
+# Here we get the indexes of the columns having at least 90% of NA or blank values on the training dataset
+
+dropcol <- which(colSums(is.na(TrainSet) |TrainSet=="")>0.9*dim(TrainSet)[1]) 
+TrainSet_Clean <- TrainSet[,-dropcol]
+
+# We also remove the first 7 columns since it doesn't give any valuable information
+TrainSet_Clean <- TrainSet_Clean[,-c(1:7)]
+dim(TrainSet_Clean)
+
+# We also do the same thing with the test data
+TestSet_Clean <- TestSet[,-dropcol]
+TestSet_Clean <- TestSet_Clean[,-c(1:7)]
+dim(TestSet_Clean)
+```
+
+##Exploratory Analysis on Data
+
+We also want to analyze the correlation between variables; hence we plot using a correlation matrix where the highly correlated variables are shown in dark color.
+
+```{r corr, echo=TRUE}
+corMatrix <- cor(TrainSet_Clean[,-53])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+To make an evem more compact analysis, a PCA (Principal Components Analysis) could be performed as pre-processing step to the datasets given we sacrifice the interpretability of the model. Nevertheless, as the correlations are quite few, this step will not be applied for this assignment.
+
+##Predictive Modeling
+We train our model with the training set and then we use the test set to see the performance of each model. In this report, we are going to train with 1) Decision Trees 2) Random Forest and 3) Gradient Boosted Model. Afterwards, we are going to choose the best model according to the accuracy of each model. Furthermore, a confusion matrix is generated to further explain each model.
+
+### Method 1 : Decision Trees
+
+```{r decision_trees, echo=TRUE}
+set.seed(12345)
+modFitDecTree <- rpart(classe ~ ., data=TrainSet_Clean, method="class")
+fancyRpartPlot(modFitDecTree)
+
+# prediction on Test dataset
+predictDecTree <- predict(modFitDecTree, newdata=TestSet_Clean, type="class")
+confMatDecTree <- confusionMatrix(predictDecTree, TestSet_Clean$classe)
+confMatDecTree
+```
+
+### Method 2 : Random Forest
+```{r randomforest, echo=TRUE}
+# model fit
+set.seed(12345)
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=TrainSet_Clean, method="rf",
+                          trControl=controlRF)
+modFitRandForest$finalModel
+```
+To obtain the confusion matrix and also the accuracy;
+```{r confu_rf, echo=TRUE}
+predictRandForest <- predict(modFitRandForest, newdata=TestSet_Clean)
+confMatRandForest <- confusionMatrix(predictRandForest, TestSet_Clean$classe)
+confMatRandForest
+```
+
+Evidently, the random forest has a high accuracy with 99.51%. So far, this is far better than method 1 (Decision Trees). We want to dig deeper on this model so we plot what is the optimal and minimum number of variables for this model. With this, we can further minimize the number of variables to be used for training in the future. Also, using the r varImp to determine what are the most important features for this model.
+
+```{r plot_rf, ech=TRUE}
+plot(modFitRandForest,main="Accuracy of Random forest model by number of predictors")
+```
+```{r varimp, echo=TRUE}
+MostImpVars <- varImp(modFitRandForest)
+MostImpVars
+```
+
+### Method 3 : Gradient Boosted Model
+
+```{r gbm, echo=TRUE}
+# model fit
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM  <- train(classe ~ ., data=TrainSet_Clean, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+modFitGBM$finalModel
+
+# prediction on Test dataset
+predictGBM <- predict(modFitGBM, newdata=TestSet_Clean)
+confMatGBM <- confusionMatrix(predictGBM, TestSet_Clean$classe)
+confMatGBM
+
+```
+
+## Conclusion and Recommendations
+
+In conclusion, the best model is the random forest.I would suggest reducing the number of variables again in the future to make the processing faster also.
+
+```{r rf_plot, echo=TRUE}
+# plot matrix results
+plot(confMatRandForest$table, col = confMatRandForest$byClass, 
+     main = paste("Random Forest - Accuracy =",
+                  round(confMatRandForest$overall['Accuracy'], 4)))
+```
+With this in mind, we now predict the test (or rather the valid) set for our 20 items exam as part of the final requirements for this module.
+
+```{r valid, echo=TRUE}
+predictVALID <- predict(modFitRandForest, newdata=test)
+predictVALID
+```
+
+
+
